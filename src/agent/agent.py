@@ -4,6 +4,7 @@ from langchain.agents.middleware import (
     ClearToolUsesEdit,
     ContextEditingMiddleware,
 )
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -39,12 +40,157 @@ class RepoLensAgent:
             "LLM initialized: model=openai/gpt-oss-120b"
         )
 
+    async def _is_repository_question(
+        self,
+        question: str,
+    ) -> bool:
+
+        logger.info(
+            "Checking question intent: question_length=%s",
+            len(question),
+        )
+
+        try:
+
+            response = await self.llm.ainvoke(
+                [
+                    SystemMessage(
+                        content="""
+Determine whether the user's message requires information
+from a GitHub repository.
+
+Return exactly one word:
+
+YES
+
+if the message requires repository information, repository
+code, repository files, implementation details, repository
+architecture, repository behavior, or information that
+should be obtained from repository tools or indexed code.
+
+Return:
+
+NO
+
+if the message can be answered without accessing the
+repository, including normal conversation, casual discussion,
+general questions, or unrelated questions.
+
+If the message is an ambiguous follow-up to a repository
+discussion and repository context may be required, return YES.
+
+Return only YES or NO.
+"""
+                    ),
+                    HumanMessage(
+                        content=question
+                    ),
+                ]
+            )
+
+            result = response.content
+
+            if isinstance(result, list):
+
+                parts = []
+
+                for block in result:
+
+                    if isinstance(block, dict):
+
+                        text = block.get("text")
+
+                        if text:
+                            parts.append(text)
+
+                result = "".join(parts)
+
+            result = str(result).strip().upper()
+
+            is_repository_question = result.startswith("YES")
+
+            logger.info(
+                "Question intent detected: repository_question=%s",
+                is_repository_question,
+            )
+
+            return is_repository_question
+
+        except Exception:
+
+            logger.exception(
+                "Question intent detection failed"
+            )
+
+            return True
+
+    async def _stream_normal_response(
+        self,
+        question: str,
+    ):
+
+        logger.info(
+            "Normal response started: question_length=%s",
+            len(question),
+        )
+
+        try:
+
+            async for chunk in self.llm.astream(
+                [
+                    SystemMessage(
+                        content="""
+You are a helpful AI assistant.
+
+Answer the user's message naturally and concisely.
+
+Do not use repository tools or assume information about a
+GitHub repository unless the user explicitly asks about one.
+"""
+                    ),
+                    HumanMessage(
+                        content=question
+                    ),
+                ]
+            ):
+
+                content = chunk.content
+
+                if isinstance(content, str):
+
+                    if content:
+                        yield content
+
+                elif isinstance(content, list):
+
+                    for block in content:
+
+                        if isinstance(block, dict):
+
+                            text = block.get("text")
+
+                            if text:
+                                yield text
+
+            logger.info(
+                "Normal response completed"
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Normal response failed"
+            )
+
+            raise
+
     async def _create_agent(
         self,
         owner: str,
         repo: str,
         checkpointer,
     ):
+
         namespace = f"{owner}-{repo}"
 
         logger.info(
@@ -106,6 +252,7 @@ class RepoLensAgent:
                 text = "\n".join(paths)
 
                 if len(text) > MAX_FILE_LIST_CHARS:
+
                     text = (
                         text[:MAX_FILE_LIST_CHARS]
                         + "\n\n[File list truncated.]"
@@ -167,6 +314,7 @@ class RepoLensAgent:
                 )
 
                 if len(content) > MAX_FILE_CHARS:
+
                     content = (
                         content[:MAX_FILE_CHARS]
                         + "\n\n[File content truncated.]"
@@ -261,6 +409,7 @@ class RepoLensAgent:
                 result = "\n\n".join(parts)
 
                 if total_chars >= MAX_SEARCH_CHARS:
+
                     result += (
                         "\n\n[Search results truncated.]"
                     )
@@ -307,22 +456,6 @@ class RepoLensAgent:
 You are RepoLens AI, a GitHub repository investigator.
 
 You are investigating {owner}/{repo}.
-
-IMPORTANT BEHAVIOR:
-
-For greetings, casual conversation, thanks, or messages
-that are unrelated to the repository, respond normally
-and DO NOT use any repository tools.
-
-Examples:
-- "hello"
-- "hi"
-- "hey"
-- "thanks"
-- "how are you?"
-- "good morning"
-
-For these messages, respond naturally and briefly.
 
 Only use repository tools when the user's message requires
 information about the repository.
@@ -373,6 +506,7 @@ clearly say so.
         repo: str,
         thread_id: str,
     ):
+
         logger.info(
             "Agent stream started: repository=%s/%s | thread_id=%s | question_length=%s",
             owner,
@@ -380,6 +514,22 @@ clearly say so.
             thread_id,
             len(question),
         )
+
+        is_repository_question = (
+            await self._is_repository_question(
+                question
+            )
+        )
+
+        if not is_repository_question:
+
+            async for chunk in self._stream_normal_response(
+                question
+            ):
+
+                yield chunk
+
+            return
 
         async with AsyncSqliteSaver.from_conn_string(
             "data/repolens.db"
@@ -393,7 +543,7 @@ clearly say so.
 
             config = {
                 "configurable": {
-                    "thread_id": thread_id,
+                    "thread_id": thread_id
                 }
             }
 
@@ -498,6 +648,7 @@ clearly say so.
         repo: str,
         thread_id: str,
     ):
+
         logger.info(
             "Fetching conversation history: repository=%s/%s | thread_id=%s",
             owner,
@@ -517,7 +668,7 @@ clearly say so.
 
             config = {
                 "configurable": {
-                    "thread_id": thread_id,
+                    "thread_id": thread_id
                 }
             }
 
@@ -630,6 +781,7 @@ clearly say so.
         self,
         thread_id: str,
     ):
+
         logger.info(
             "Deleting LangGraph thread: thread_id=%s",
             thread_id,

@@ -52,6 +52,7 @@ EXCLUDED_DIRECTORIES = {
     ".git",
     ".github",
     "node_modules",
+    "evaluation",
     ".venv",
     "venv",
     "__pycache__",

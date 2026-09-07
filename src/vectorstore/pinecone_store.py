@@ -3,7 +3,7 @@ import pickle
 
 from langchain_pinecone import PineconeVectorStore
 from rank_bm25 import BM25Okapi
-from sentence_transformers import CrossEncoder
+
 
 from src.config.logging_config import get_logger
 from src.config.settings import settings
@@ -20,9 +20,6 @@ vectorstore = PineconeVectorStore(
 )
 
 
-reranker = CrossEncoder(
-    "BAAI/bge-reranker-base"
-)
 
 
 BM25_DIR = Path("data/bm25")
@@ -140,7 +137,7 @@ def add_documents(
 def similarity_search(
     query: str,
     namespace: str,
-    k: int = 10,
+    k: int = 20,
 ):
 
     logger.info(
@@ -176,7 +173,7 @@ def similarity_search(
 def bm25_search(
     query: str,
     namespace: str,
-    k: int = 10,
+    k: int = 20,
 ):
 
     logger.info(
@@ -241,7 +238,7 @@ def _document_key(document):
 
 def reciprocal_rank_fusion(
     result_lists,
-    k: int = 10,
+    k: int = 15,
     rrf_constant: int = 60,
 ):
 
@@ -318,12 +315,13 @@ def rerank_documents(
 
     try:
         pairs = [
-            (
-                query,
-                document.page_content,
-            )
-            for document in documents
-        ]
+    (
+        query,
+        f"File: {document.metadata.get('path', '')}\n\n"
+        f"{document.page_content}",
+    )
+    for document in documents
+]
 
         scores = reranker.predict(
             pairs
@@ -376,13 +374,13 @@ def hybrid_search(
         dense_results = similarity_search(
             query=query,
             namespace=namespace,
-            k=10,
+            k=20,
         )
 
         sparse_results = bm25_search(
             query=query,
             namespace=namespace,
-            k=10,
+            k=20,
         )
 
         fused_results = reciprocal_rank_fusion(
@@ -390,14 +388,10 @@ def hybrid_search(
                 dense_results,
                 sparse_results,
             ],
-            k=10,
+            k=15,
         )
 
-        final_results = rerank_documents(
-            query=query,
-            documents=fused_results,
-            k=k,
-        )
+        final_results = fused_results[:k]
 
         logger.info(
             "Advanced hybrid search completed: namespace=%s | dense=%s | sparse=%s | fused=%s | final=%s",

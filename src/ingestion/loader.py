@@ -97,7 +97,10 @@ async def load_repository(
 
                 documents.append(
                     Document(
-                        page_content=data["content"],
+                        page_content=(
+                            f"File: {data['path']}\n\n"
+                            f"{data['content']}"
+                        ),
                         metadata={
                             "owner": owner,
                             "repo": repo,

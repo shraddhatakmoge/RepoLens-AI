@@ -1,8 +1,8 @@
 # RepoLens local data
-data/
 .env
 __pycache__/
 *.py[codz]
 
 # RepoLens local data
 data/
+evalution/results.json
