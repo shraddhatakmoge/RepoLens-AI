@@ -358,7 +358,7 @@ with st.sidebar:
                     st.rerun()
 
 
-st.title("🔎 RepoLens AI")
+
 
 st.caption(
     "AI-powered GitHub Repository Investigator"

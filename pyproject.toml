@@ -8,6 +8,7 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "fastapi>=0.141.1",
     "fastmcp>=4.0.3",
+    "google-genai>=2.22.0",
     "httpx>=0.28.1",
     "langchain>=1.4.0",
     "langchain-community>=0.4.2",
@@ -22,7 +23,6 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.3",
     "rank-bm25>=0.2.2",
-    "sentence-transformers>=6.0.1",
     "streamlit>=1.63.0",
     "uvicorn>=0.52.4",
 ]

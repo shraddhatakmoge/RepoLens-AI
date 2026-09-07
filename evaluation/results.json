@@ -1,0 +1,363 @@
+{
+    "repository": "shraddhatakmoge/RepoLens-AI",
+    "namespace": "shraddhatakmoge-RepoLens-AI",
+    "metrics": {
+        "total_questions": 20,
+        "successful": 20,
+        "failed": 0,
+        "hit_at_1": 0.55,
+        "hit_at_3": 0.75,
+        "hit_at_4": 0.8,
+        "recall_at_4": 0.6833333333333333
+    },
+    "questions": [
+        {
+            "question_number": 1,
+            "question": "How does RepoLens connect to the GitHub API?",
+            "expected_files": [
+                "mcp_server/github.py"
+            ],
+            "retrieved_files": [
+                "mcp_server/github.py",
+                "app.py",
+                "src/agent/agent.py",
+                "api.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 2,
+            "question": "How is the GitHub API token configured?",
+            "expected_files": [
+                "src/config/settings.py",
+                "mcp_server/github.py"
+            ],
+            "retrieved_files": [
+                "mcp_server/github.py",
+                "src/agent/agent.py",
+                "mcp_server/tools/files.py",
+                "app.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 0.5
+        },
+        {
+            "question_number": 3,
+            "question": "How are repository files loaded through MCP?",
+            "expected_files": [
+                "src/ingestion/loader.py",
+                "mcp_server/tools/files.py"
+            ],
+            "retrieved_files": [
+                "src/agent/agent.py",
+                "api.py",
+                "src/ingestion/loader.py",
+                "app.py"
+            ],
+            "hit_at_1": false,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 0.5
+        },
+        {
+            "question_number": 4,
+            "question": "How does RepoLens decide which repository files should be indexed?",
+            "expected_files": [
+                "src/ingestion/file_splitter.py",
+                "src/ingestion/loader.py"
+            ],
+            "retrieved_files": [
+                "src/agent/agent.py",
+                "api.py",
+                "app.py",
+                "src/agent/prompts.py"
+            ],
+            "hit_at_1": false,
+            "hit_at_3": false,
+            "hit_at_4": false,
+            "recall_at_4": 0.0
+        },
+        {
+            "question_number": 5,
+            "question": "What file extensions are allowed for repository indexing?",
+            "expected_files": [
+                "src/ingestion/file_splitter.py"
+            ],
+            "retrieved_files": [
+                "src/agent/agent.py",
+                "api.py",
+                "mcp_server/tools/files.py",
+                "app.py"
+            ],
+            "hit_at_1": false,
+            "hit_at_3": false,
+            "hit_at_4": false,
+            "recall_at_4": 0.0
+        },
+        {
+            "question_number": 6,
+            "question": "How are repository documents split into chunks?",
+            "expected_files": [
+                "src/ingestion/splitter.py"
+            ],
+            "retrieved_files": [
+                "api.py",
+                "src/agent/agent.py",
+                "src/ingestion/loader.py",
+                "app.py"
+            ],
+            "hit_at_1": false,
+            "hit_at_3": false,
+            "hit_at_4": false,
+            "recall_at_4": 0.0
+        },
+        {
+            "question_number": 7,
+            "question": "What chunk size and overlap are used?",
+            "expected_files": [
+                "src/ingestion/splitter.py"
+            ],
+            "retrieved_files": [
+                "api.py",
+                "src/agent/agent.py",
+                "src/ingestion/file_splitter.py",
+                "LICENSE"
+            ],
+            "hit_at_1": false,
+            "hit_at_3": false,
+            "hit_at_4": false,
+            "recall_at_4": 0.0
+        },
+        {
+            "question_number": 8,
+            "question": "What embedding model does RepoLens use?",
+            "expected_files": [
+                "src/embeddings/embedder.py"
+            ],
+            "retrieved_files": [
+                "api.py",
+                "app.py",
+                "src/agent/agent.py",
+                "src/embeddings/embedder.py"
+            ],
+            "hit_at_1": false,
+            "hit_at_3": false,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 9,
+            "question": "How are documents stored in Pinecone?",
+            "expected_files": [
+                "src/vectorstore/pinecone_store.py"
+            ],
+            "retrieved_files": [
+                "src/vectorstore/pinecone_store.py",
+                "api.py",
+                "src/agent/agent.py",
+                "src/ingestion/loader.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 10,
+            "question": "How does RepoLens implement BM25 search?",
+            "expected_files": [
+                "src/vectorstore/pinecone_store.py"
+            ],
+            "retrieved_files": [
+                "src/vectorstore/pinecone_store.py",
+                "src/agent/agent.py",
+                "api.py",
+                "app.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 11,
+            "question": "How does hybrid retrieval combine dense and sparse search?",
+            "expected_files": [
+                "src/vectorstore/pinecone_store.py",
+                "src/rag/retriever.py"
+            ],
+            "retrieved_files": [
+                "src/vectorstore/pinecone_store.py",
+                "src/agent/agent.py",
+                "api.py",
+                "LICENSE"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 0.5
+        },
+        {
+            "question_number": 12,
+            "question": "How does reciprocal rank fusion work in RepoLens?",
+            "expected_files": [
+                "src/vectorstore/pinecone_store.py"
+            ],
+            "retrieved_files": [
+                "src/vectorstore/pinecone_store.py",
+                "src/agent/agent.py",
+                "app.py",
+                "tests/test_agent.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 13,
+            "question": "How does the reranker improve repository search?",
+            "expected_files": [
+                "src/vectorstore/pinecone_store.py"
+            ],
+            "retrieved_files": [
+                "src/agent/agent.py",
+                "src/vectorstore/pinecone_store.py",
+                "api.py",
+                "app.py"
+            ],
+            "hit_at_1": false,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 14,
+            "question": "Which reranking model is used by RepoLens?",
+            "expected_files": [
+                "src/vectorstore/pinecone_store.py"
+            ],
+            "retrieved_files": [
+                "src/vectorstore/pinecone_store.py",
+                "api.py",
+                "src/agent/agent.py",
+                "mcp_server/tools/files.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 15,
+            "question": "How does the agent search the indexed repository?",
+            "expected_files": [
+                "src/agent/agent.py",
+                "src/rag/retriever.py",
+                "src/vectorstore/pinecone_store.py"
+            ],
+            "retrieved_files": [
+                "src/agent/agent.py",
+                "api.py",
+                "src/vectorstore/pinecone_store.py",
+                "src/agent/prompts.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 0.6666666666666666
+        },
+        {
+            "question_number": 16,
+            "question": "Which tools can the RepoLens agent use?",
+            "expected_files": [
+                "src/agent/agent.py"
+            ],
+            "retrieved_files": [
+                "src/agent/agent.py",
+                "api.py",
+                "app.py",
+                "src/agent/prompts.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 17,
+            "question": "How does RepoLens maintain conversation history?",
+            "expected_files": [
+                "src/agent/agent.py",
+                "src/database/chat_sessions.py"
+            ],
+            "retrieved_files": [
+                "src/agent/agent.py",
+                "api.py",
+                "app.py",
+                "src/database/chat_history.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 0.5
+        },
+        {
+            "question_number": 18,
+            "question": "How are chat sessions stored?",
+            "expected_files": [
+                "src/database/chat_sessions.py"
+            ],
+            "retrieved_files": [
+                "api.py",
+                "src/database/chat_sessions.py",
+                "app.py",
+                "src/database/chat_history.py"
+            ],
+            "hit_at_1": false,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 19,
+            "question": "How does the FastAPI backend handle chat requests?",
+            "expected_files": [
+                "api.py",
+                "src/agent/agent.py"
+            ],
+            "retrieved_files": [
+                "api.py",
+                "app.py",
+                "src/agent/agent.py",
+                "src/database/chat_sessions.py"
+            ],
+            "hit_at_1": true,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        },
+        {
+            "question_number": 20,
+            "question": "How does RepoLens handle errors from the GitHub API?",
+            "expected_files": [
+                "mcp_server/github.py"
+            ],
+            "retrieved_files": [
+                "src/agent/agent.py",
+                "mcp_server/github.py",
+                "app.py",
+                "api.py"
+            ],
+            "hit_at_1": false,
+            "hit_at_3": true,
+            "hit_at_4": true,
+            "recall_at_4": 1.0
+        }
+    ]
+}
