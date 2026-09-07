@@ -1,0 +1,130 @@
+[
+  {
+    "question": "How does RepoLens connect to the GitHub API?",
+    "expected_files": [
+      "mcp_server/github.py"
+    ]
+  },
+  {
+    "question": "How is the GitHub API token configured?",
+    "expected_files": [
+      "src/config/settings.py",
+      "mcp_server/github.py"
+    ]
+  },
+  {
+    "question": "How are repository files loaded through MCP?",
+    "expected_files": [
+      "src/ingestion/loader.py",
+      "mcp_server/tools/files.py"
+    ]
+  },
+  {
+    "question": "How does RepoLens decide which repository files should be indexed?",
+    "expected_files": [
+      "src/ingestion/file_splitter.py",
+      "src/ingestion/loader.py"
+    ]
+  },
+  {
+    "question": "What file extensions are allowed for repository indexing?",
+    "expected_files": [
+      "src/ingestion/file_splitter.py"
+    ]
+  },
+  {
+    "question": "How are repository documents split into chunks?",
+    "expected_files": [
+      "src/ingestion/splitter.py"
+    ]
+  },
+  {
+    "question": "What chunk size and overlap are used?",
+    "expected_files": [
+      "src/ingestion/splitter.py"
+    ]
+  },
+  {
+    "question": "What embedding model does RepoLens use?",
+    "expected_files": [
+      "src/embeddings/embedder.py"
+    ]
+  },
+  {
+    "question": "How are documents stored in Pinecone?",
+    "expected_files": [
+      "src/vectorstore/pinecone_store.py"
+    ]
+  },
+  {
+    "question": "How does RepoLens implement BM25 search?",
+    "expected_files": [
+      "src/vectorstore/pinecone_store.py"
+    ]
+  },
+  {
+    "question": "How does hybrid retrieval combine dense and sparse search?",
+    "expected_files": [
+      "src/vectorstore/pinecone_store.py",
+      "src/rag/retriever.py"
+    ]
+  },
+  {
+    "question": "How does reciprocal rank fusion work in RepoLens?",
+    "expected_files": [
+      "src/vectorstore/pinecone_store.py"
+    ]
+  },
+  {
+    "question": "How does the reranker improve repository search?",
+    "expected_files": [
+      "src/vectorstore/pinecone_store.py"
+    ]
+  },
+  {
+    "question": "Which reranking model is used by RepoLens?",
+    "expected_files": [
+      "src/vectorstore/pinecone_store.py"
+    ]
+  },
+  {
+    "question": "How does the agent search the indexed repository?",
+    "expected_files": [
+      "src/agent/agent.py",
+      "src/rag/retriever.py",
+      "src/vectorstore/pinecone_store.py"
+    ]
+  },
+  {
+    "question": "Which tools can the RepoLens agent use?",
+    "expected_files": [
+      "src/agent/agent.py"
+    ]
+  },
+  {
+    "question": "How does RepoLens maintain conversation history?",
+    "expected_files": [
+      "src/agent/agent.py",
+      "src/database/chat_sessions.py"
+    ]
+  },
+  {
+    "question": "How are chat sessions stored?",
+    "expected_files": [
+      "src/database/chat_sessions.py"
+    ]
+  },
+  {
+    "question": "How does the FastAPI backend handle chat requests?",
+    "expected_files": [
+      "api.py",
+      "src/agent/agent.py"
+    ]
+  },
+  {
+    "question": "How does RepoLens handle errors from the GitHub API?",
+    "expected_files": [
+      "mcp_server/github.py"
+    ]
+  }
+]

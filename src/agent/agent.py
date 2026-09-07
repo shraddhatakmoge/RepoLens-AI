@@ -1,0 +1,711 @@
+from fastmcp import Client
+from langchain.agents import create_agent
+from langchain.agents.middleware import (
+    ClearToolUsesEdit,
+    ContextEditingMiddleware,
+)
+from langchain_core.tools import tool
+from langchain_groq import ChatGroq
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+from src.config.logging_config import get_logger
+from src.config.settings import settings
+from src.rag.retriever import retrieve
+
+
+logger = get_logger(__name__)
+
+
+MAX_SEARCH_CHARS = 4000
+MAX_FILE_CHARS = 6000
+MAX_FILE_LIST_CHARS = 5000
+
+
+class RepoLensAgent:
+    def __init__(self):
+
+        logger.info(
+            "Initializing RepoLens agent"
+        )
+
+        self.llm = ChatGroq(
+            model="openai/gpt-oss-120b",
+            temperature=0,
+            api_key=settings.groq_api_key,
+            max_tokens=2048,
+        )
+
+        logger.info(
+            "LLM initialized: model=openai/gpt-oss-120b"
+        )
+
+    async def _create_agent(
+        self,
+        owner: str,
+        repo: str,
+        checkpointer,
+    ):
+        namespace = f"{owner}-{repo}"
+
+        logger.info(
+            "Creating agent: repository=%s/%s",
+            owner,
+            repo,
+        )
+
+        client = Client(
+            settings.mcp_server_url
+        )
+
+        await client.__aenter__()
+
+        logger.info(
+            "Connected to MCP server: %s",
+            settings.mcp_server_url,
+        )
+
+        @tool
+        async def list_repository_files() -> str:
+            """List the files in the repository."""
+
+            logger.info(
+                "MCP tool called: list_repository_files | repository=%s/%s",
+                owner,
+                repo,
+            )
+
+            try:
+
+                result = await client.call_tool(
+                    "list_files",
+                    {
+                        "owner": owner,
+                        "repo": repo,
+                    },
+                )
+
+                data = result.data
+
+                files = data.get(
+                    "files",
+                    [],
+                )
+
+                logger.info(
+                    "Repository files listed: repository=%s/%s | files=%s",
+                    owner,
+                    repo,
+                    len(files),
+                )
+
+                paths = [
+                    file["path"]
+                    for file in files
+                ]
+
+                text = "\n".join(paths)
+
+                if len(text) > MAX_FILE_LIST_CHARS:
+                    text = (
+                        text[:MAX_FILE_LIST_CHARS]
+                        + "\n\n[File list truncated.]"
+                    )
+
+                return (
+                    f"Repository: {owner}/{repo}\n"
+                    f"Total files: {len(files)}\n\n"
+                    f"{text}"
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "MCP tool failed: list_repository_files | repository=%s/%s",
+                    owner,
+                    repo,
+                )
+
+                raise
+
+        @tool
+        async def read_repository_file(
+            path: str,
+        ) -> str:
+            """Read a specific file from the repository."""
+
+            logger.info(
+                "MCP tool called: read_repository_file | repository=%s/%s | path=%s",
+                owner,
+                repo,
+                path,
+            )
+
+            try:
+
+                result = await client.call_tool(
+                    "read_file",
+                    {
+                        "owner": owner,
+                        "repo": repo,
+                        "path": path,
+                    },
+                )
+
+                data = result.data
+
+                content = data.get(
+                    "content",
+                    "",
+                )
+
+                logger.info(
+                    "Repository file read: repository=%s/%s | path=%s | chars=%s",
+                    owner,
+                    repo,
+                    path,
+                    len(content),
+                )
+
+                if len(content) > MAX_FILE_CHARS:
+                    content = (
+                        content[:MAX_FILE_CHARS]
+                        + "\n\n[File content truncated.]"
+                    )
+
+                return (
+                    f"File: {path}\n\n"
+                    f"{content}"
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "MCP tool failed: read_repository_file | repository=%s/%s | path=%s",
+                    owner,
+                    repo,
+                    path,
+                )
+
+                raise
+
+        @tool
+        async def search_repository(
+            query: str,
+        ) -> str:
+            """Search the indexed repository for relevant code and documentation."""
+
+            logger.info(
+                "RAG search started: repository=%s/%s | query_length=%s",
+                owner,
+                repo,
+                len(query),
+            )
+
+            try:
+
+                documents = retrieve(
+                    query,
+                    namespace=namespace,
+                    k=4,
+                )
+
+                logger.info(
+                    "RAG search completed: repository=%s/%s | results=%s",
+                    owner,
+                    repo,
+                    len(documents),
+                )
+
+                if not documents:
+
+                    logger.warning(
+                        "No RAG results found: repository=%s/%s",
+                        owner,
+                        repo,
+                    )
+
+                    return (
+                        "No relevant repository context "
+                        "was found."
+                    )
+
+                parts = []
+                total_chars = 0
+
+                for document in documents:
+
+                    path = document.metadata.get(
+                        "path",
+                        "unknown",
+                    )
+
+                    content = document.page_content
+
+                    remaining = (
+                        MAX_SEARCH_CHARS
+                        - total_chars
+                    )
+
+                    if remaining <= 0:
+                        break
+
+                    content = content[:remaining]
+
+                    parts.append(
+                        f"File: {path}\n"
+                        f"{content}"
+                    )
+
+                    total_chars += len(content)
+
+                result = "\n\n".join(parts)
+
+                if total_chars >= MAX_SEARCH_CHARS:
+                    result += (
+                        "\n\n[Search results truncated.]"
+                    )
+
+                logger.info(
+                    "RAG context prepared: repository=%s/%s | results=%s | chars=%s",
+                    owner,
+                    repo,
+                    len(documents),
+                    total_chars,
+                )
+
+                return result
+
+            except Exception:
+
+                logger.exception(
+                    "RAG search failed: repository=%s/%s",
+                    owner,
+                    repo,
+                )
+
+                raise
+
+        agent = create_agent(
+            model=self.llm,
+            tools=[
+                list_repository_files,
+                read_repository_file,
+                search_repository,
+            ],
+            middleware=[
+                ContextEditingMiddleware(
+                    edits=[
+                        ClearToolUsesEdit(
+                            trigger=5000,
+                            keep=2,
+                        )
+                    ]
+                )
+            ],
+            checkpointer=checkpointer,
+            system_prompt=f"""
+You are RepoLens AI, a GitHub repository investigator.
+
+You are investigating {owner}/{repo}.
+
+IMPORTANT BEHAVIOR:
+
+For greetings, casual conversation, thanks, or messages
+that are unrelated to the repository, respond normally
+and DO NOT use any repository tools.
+
+Examples:
+- "hello"
+- "hi"
+- "hey"
+- "thanks"
+- "how are you?"
+- "good morning"
+
+For these messages, respond naturally and briefly.
+
+Only use repository tools when the user's message requires
+information about the repository.
+
+Use list_repository_files when the user asks about:
+- files
+- folders
+- repository structure
+- listing repository files
+
+Use read_repository_file when the user asks about:
+- a specific file
+- file contents
+- implementation details requiring direct inspection
+
+Use search_repository when the user asks:
+- how something works
+- why something is implemented
+- conceptual questions about the repository
+- questions requiring semantic search
+- where a particular feature is implemented
+
+Choose the appropriate tool based on the user's question.
+
+Do not invent repository information.
+
+Mention relevant file paths when possible.
+
+Keep answers focused and concise.
+
+If the available repository information is insufficient,
+clearly say so.
+""",
+        )
+
+        logger.info(
+            "RepoLens agent created successfully: repository=%s/%s",
+            owner,
+            repo,
+        )
+
+        return agent, client
+
+    async def stream(
+        self,
+        question: str,
+        owner: str,
+        repo: str,
+        thread_id: str,
+    ):
+        logger.info(
+            "Agent stream started: repository=%s/%s | thread_id=%s | question_length=%s",
+            owner,
+            repo,
+            thread_id,
+            len(question),
+        )
+
+        async with AsyncSqliteSaver.from_conn_string(
+            "data/repolens.db"
+        ) as checkpointer:
+
+            agent, client = await self._create_agent(
+                owner=owner,
+                repo=repo,
+                checkpointer=checkpointer,
+            )
+
+            config = {
+                "configurable": {
+                    "thread_id": thread_id,
+                }
+            }
+
+            chunk_count = 0
+
+            try:
+
+                async for (
+                    message_chunk,
+                    metadata,
+                ) in agent.astream(
+                    {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": question,
+                            }
+                        ]
+                    },
+                    config=config,
+                    stream_mode="messages",
+                ):
+
+                    if (
+                        message_chunk.type
+                        != "AIMessageChunk"
+                    ):
+                        continue
+
+                    if isinstance(
+                        message_chunk.content,
+                        str,
+                    ):
+
+                        if message_chunk.content:
+
+                            chunk_count += 1
+
+                            yield message_chunk.content
+
+                    elif isinstance(
+                        message_chunk.content,
+                        list,
+                    ):
+
+                        for block in (
+                            message_chunk.content
+                        ):
+
+                            if isinstance(
+                                block,
+                                dict,
+                            ):
+
+                                text = block.get(
+                                    "text"
+                                )
+
+                                if text:
+
+                                    chunk_count += 1
+
+                                    yield text
+
+                logger.info(
+                    "Agent stream completed: repository=%s/%s | thread_id=%s | chunks=%s",
+                    owner,
+                    repo,
+                    thread_id,
+                    chunk_count,
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "Agent stream failed: repository=%s/%s | thread_id=%s",
+                    owner,
+                    repo,
+                    thread_id,
+                )
+
+                raise
+
+            finally:
+
+                await client.__aexit__(
+                    None,
+                    None,
+                    None,
+                )
+
+                logger.info(
+                    "MCP connection closed: repository=%s/%s | thread_id=%s",
+                    owner,
+                    repo,
+                    thread_id,
+                )
+
+    async def get_history(
+        self,
+        owner: str,
+        repo: str,
+        thread_id: str,
+    ):
+        logger.info(
+            "Fetching conversation history: repository=%s/%s | thread_id=%s",
+            owner,
+            repo,
+            thread_id,
+        )
+
+        async with AsyncSqliteSaver.from_conn_string(
+            "data/repolens.db"
+        ) as checkpointer:
+
+            agent, client = await self._create_agent(
+                owner=owner,
+                repo=repo,
+                checkpointer=checkpointer,
+            )
+
+            config = {
+                "configurable": {
+                    "thread_id": thread_id,
+                }
+            }
+
+            try:
+
+                state = await agent.aget_state(
+                    config
+                )
+
+                if not state:
+
+                    logger.info(
+                        "No conversation state found: thread_id=%s",
+                        thread_id,
+                    )
+
+                    return []
+
+                messages = state.values.get(
+                    "messages",
+                    [],
+                )
+
+                history = []
+
+                for message in messages:
+
+                    if message.type == "human":
+                        role = "user"
+
+                    elif message.type == "ai":
+                        role = "assistant"
+
+                    else:
+                        continue
+
+                    content = message.content
+
+                    if isinstance(
+                        content,
+                        str,
+                    ):
+
+                        text = content
+
+                    elif isinstance(
+                        content,
+                        list,
+                    ):
+
+                        parts = []
+
+                        for block in content:
+
+                            if isinstance(
+                                block,
+                                dict,
+                            ):
+
+                                block_text = block.get(
+                                    "text"
+                                )
+
+                                if block_text:
+                                    parts.append(
+                                        block_text
+                                    )
+
+                        text = "".join(parts)
+
+                    else:
+
+                        text = str(content)
+
+                    if text:
+
+                        history.append(
+                            {
+                                "role": role,
+                                "content": text,
+                            }
+                        )
+
+                logger.info(
+                    "Conversation history fetched: thread_id=%s | messages=%s",
+                    thread_id,
+                    len(history),
+                )
+
+                return history
+
+            except Exception:
+
+                logger.exception(
+                    "Failed to fetch conversation history: thread_id=%s",
+                    thread_id,
+                )
+
+                raise
+
+            finally:
+
+                await client.__aexit__(
+                    None,
+                    None,
+                    None,
+                )
+
+    async def delete_thread(
+        self,
+        thread_id: str,
+    ):
+        logger.info(
+            "Deleting LangGraph thread: thread_id=%s",
+            thread_id,
+        )
+
+        async with AsyncSqliteSaver.from_conn_string(
+            "data/repolens.db"
+        ) as checkpointer:
+
+            try:
+
+                await checkpointer.adelete_thread(
+                    thread_id
+                )
+
+                logger.info(
+                    "LangGraph thread deleted: thread_id=%s",
+                    thread_id,
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "Failed to delete LangGraph thread: thread_id=%s",
+                    thread_id,
+                )
+
+                raise
+
+    async def ask(
+        self,
+        question: str,
+        owner: str,
+        repo: str,
+        thread_id: str,
+    ):
+
+        logger.info(
+            "Agent ask started: repository=%s/%s | thread_id=%s",
+            owner,
+            repo,
+            thread_id,
+        )
+
+        chunks = []
+
+        try:
+
+            async for chunk in self.stream(
+                question=question,
+                owner=owner,
+                repo=repo,
+                thread_id=thread_id,
+            ):
+
+                chunks.append(chunk)
+
+            answer = "".join(chunks)
+
+            logger.info(
+                "Agent ask completed: repository=%s/%s | thread_id=%s | answer_chars=%s",
+                owner,
+                repo,
+                thread_id,
+                len(answer),
+            )
+
+            return answer
+
+        except Exception:
+
+            logger.exception(
+                "Agent ask failed: repository=%s/%s | thread_id=%s",
+                owner,
+                repo,
+                thread_id,
+            )
+
+            raise
