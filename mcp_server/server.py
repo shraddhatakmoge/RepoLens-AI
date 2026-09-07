@@ -1,5 +1,5 @@
 from fastmcp import FastMCP
-
+import os
 from src.config.logging_config import (
     get_logger,
     setup_logging,
@@ -29,16 +29,19 @@ mcp.tool(get_commits)
 
 if __name__ == "__main__":
 
+    port = int(os.environ.get("PORT", 8001))
+
     logger.info(
         "Starting RepoLens MCP server"
     )
 
     logger.info(
-        "MCP server address: http://127.0.0.1:8001"
+        "MCP server address: http://0.0.0.0:%s",
+        port,
     )
 
     mcp.run(
         transport="http",
-        host="127.0.0.1",
-        port=8001,
+        host="0.0.0.0",
+        port=port,
     )
