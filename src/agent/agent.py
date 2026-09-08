@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from fastmcp import Client
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -20,9 +22,11 @@ logger = get_logger(__name__)
 MAX_SEARCH_CHARS = 4000
 MAX_FILE_CHARS = 6000
 MAX_FILE_LIST_CHARS = 5000
+RECENT_COMMIT_DAYS = 30
 
 
 class RepoLensAgent:
+
     def __init__(self):
 
         logger.info(
@@ -107,7 +111,9 @@ Return only YES or NO.
 
             result = str(result).strip().upper()
 
-            is_repository_question = result.startswith("YES")
+            is_repository_question = result.startswith(
+                "YES"
+            )
 
             logger.info(
                 "Question intent detected: repository_question=%s",
@@ -124,62 +130,132 @@ Return only YES or NO.
 
             return True
 
-    async def _stream_normal_response(
+    def _create_normal_agent(
         self,
-        question: str,
+        checkpointer,
     ):
 
         logger.info(
-            "Normal response started: question_length=%s",
-            len(question),
+            "Creating normal conversation agent"
         )
 
-        try:
-
-            async for chunk in self.llm.astream(
-                [
-                    SystemMessage(
-                        content="""
+        agent = create_agent(
+            model=self.llm,
+            tools=[],
+            checkpointer=checkpointer,
+            system_prompt="""
 You are a helpful AI assistant.
 
 Answer the user's message naturally and concisely.
 
-Do not use repository tools or assume information about a
-GitHub repository unless the user explicitly asks about one.
-"""
-                    ),
-                    HumanMessage(
-                        content=question
-                    ),
-                ]
+Do not use repository tools.
+
+Do not assume information about a GitHub repository
+unless the user explicitly asks about one.
+""",
+        )
+
+        logger.info(
+            "Normal conversation agent created successfully"
+        )
+
+        return agent
+
+    async def _stream_normal_response(
+        self,
+        question: str,
+        thread_id: str,
+        checkpointer,
+    ):
+
+        logger.info(
+            "Normal response started: question_length=%s | thread_id=%s",
+            len(question),
+            thread_id,
+        )
+
+        agent = self._create_normal_agent(
+            checkpointer
+        )
+
+        config = {
+            "configurable": {
+                "thread_id": thread_id
+            }
+        }
+
+        chunk_count = 0
+
+        try:
+
+            async for (
+                message_chunk,
+                metadata,
+            ) in agent.astream(
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": question,
+                        }
+                    ]
+                },
+                config=config,
+                stream_mode="messages",
             ):
 
-                content = chunk.content
+                if (
+                    message_chunk.type
+                    != "AIMessageChunk"
+                ):
+                    continue
 
-                if isinstance(content, str):
+                if isinstance(
+                    message_chunk.content,
+                    str,
+                ):
 
-                    if content:
-                        yield content
+                    if message_chunk.content:
 
-                elif isinstance(content, list):
+                        chunk_count += 1
 
-                    for block in content:
+                        yield message_chunk.content
 
-                        if isinstance(block, dict):
+                elif isinstance(
+                    message_chunk.content,
+                    list,
+                ):
 
-                            text = block.get("text")
+                    for block in (
+                        message_chunk.content
+                    ):
+
+                        if isinstance(
+                            block,
+                            dict,
+                        ):
+
+                            text = block.get(
+                                "text"
+                            )
 
                             if text:
+
+                                chunk_count += 1
+
                                 yield text
 
             logger.info(
-                "Normal response completed"
+                "Normal response completed: thread_id=%s | chunks=%s",
+                thread_id,
+                chunk_count,
             )
 
         except Exception:
 
             logger.exception(
-                "Normal response failed"
+                "Normal response failed: thread_id=%s",
+                thread_id,
             )
 
             raise
@@ -434,12 +510,192 @@ GitHub repository unless the user explicitly asks about one.
 
                 raise
 
+        @tool
+        async def get_repository_commits(
+            limit: int = 10,
+        ) -> str:
+            """Get the latest commits from the repository regardless of their age."""
+
+            logger.info(
+                "MCP tool called: get_repository_commits | repository=%s/%s | limit=%s",
+                owner,
+                repo,
+                limit,
+            )
+
+            try:
+
+                result = await client.call_tool(
+                    "get_commits",
+                    {
+                        "owner": owner,
+                        "repo": repo,
+                        "limit": limit,
+                    },
+                )
+
+                data = result.data
+
+                commits = data.get(
+                    "commits",
+                    [],
+                )
+
+                logger.info(
+                    "Repository commits fetched: repository=%s/%s | commits=%s",
+                    owner,
+                    repo,
+                    len(commits),
+                )
+
+                if not commits:
+
+                    return "No commits were found."
+
+                lines = []
+
+                for commit in commits:
+
+                    lines.append(
+                        f"Commit: {commit['sha'][:7]}\n"
+                        f"Author: {commit['author']}\n"
+                        f"Date: {commit['date']}\n"
+                        f"Message: {commit['message']}\n"
+                        f"URL: {commit['url']}"
+                    )
+
+                return "\n\n".join(lines)
+
+            except Exception:
+
+                logger.exception(
+                    "MCP tool failed: get_repository_commits | repository=%s/%s",
+                    owner,
+                    repo,
+                )
+
+                raise
+
+        @tool
+        async def get_recent_repository_commits() -> str:
+            """Check whether the repository has commits within the last 30 days."""
+
+            logger.info(
+                "MCP tool called: get_recent_repository_commits | repository=%s/%s | recent_days=%s",
+                owner,
+                repo,
+                RECENT_COMMIT_DAYS,
+            )
+
+            try:
+
+                result = await client.call_tool(
+                    "get_commits",
+                    {
+                        "owner": owner,
+                        "repo": repo,
+                        "limit": 10,
+                    },
+                )
+
+                data = result.data
+
+                commits = data.get(
+                    "commits",
+                    [],
+                )
+
+                now = datetime.now(
+                    timezone.utc
+                )
+
+                cutoff = (
+                    now
+                    - timedelta(
+                        days=RECENT_COMMIT_DAYS
+                    )
+                )
+
+                recent_commits = []
+
+                for commit in commits:
+
+                    commit_date = datetime.fromisoformat(
+                        commit["date"].replace(
+                            "Z",
+                            "+00:00",
+                        )
+                    )
+
+                    if commit_date >= cutoff:
+
+                        recent_commits.append(
+                            commit
+                        )
+
+                logger.info(
+                    "Recent commits checked: repository=%s/%s | recent_commits=%s | cutoff=%s",
+                    owner,
+                    repo,
+                    len(recent_commits),
+                    cutoff.isoformat(),
+                )
+
+                if recent_commits:
+
+                    lines = []
+
+                    for commit in recent_commits:
+
+                        lines.append(
+                            f"Message: {commit['message']}\n"
+                            f"Author: {commit['author']}\n"
+                            f"Date: {commit['date']}"
+                        )
+
+                    return (
+                        f"Found {len(recent_commits)} "
+                        f"commit(s) in the last "
+                        f"{RECENT_COMMIT_DAYS} days.\n\n"
+                        + "\n\n".join(lines)
+                    )
+
+                if commits:
+
+                    latest_commit = commits[0]
+
+                    return (
+                        f"No commits were found in the last "
+                        f"{RECENT_COMMIT_DAYS} days.\n\n"
+                        f"The latest available commit was "
+                        f"on {latest_commit['date']} "
+                        f"with the message: "
+                        f"{latest_commit['message']}"
+                    )
+
+                return (
+                    f"No commits were found in the last "
+                    f"{RECENT_COMMIT_DAYS} days."
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "MCP tool failed: get_recent_repository_commits | repository=%s/%s",
+                    owner,
+                    repo,
+                )
+
+                raise
+
         agent = create_agent(
             model=self.llm,
             tools=[
                 list_repository_files,
                 read_repository_file,
                 search_repository,
+                get_repository_commits,
+                get_recent_repository_commits,
             ],
             middleware=[
                 ContextEditingMiddleware(
@@ -478,16 +734,70 @@ Use search_repository when the user asks:
 - questions requiring semantic search
 - where a particular feature is implemented
 
-Choose the appropriate tool based on the user's question.
+Use get_repository_commits when the user asks:
+- latest commits
+- last N commits
+- commit history
+- commit messages
+- who made a commit
+- when a commit was made
+
+Use get_recent_repository_commits when the user asks:
+- are there recent commits?
+- any recent activity?
+- has this repository been active recently?
+- were there any commits recently?
+- recent changes
+
+IMPORTANT:
+
+"Recent" means commits from the last {RECENT_COMMIT_DAYS} days.
+
+Do not call a commit "recent" if it is older than
+{RECENT_COMMIT_DAYS} days.
+
+The get_recent_repository_commits tool calculates the
+actual date cutoff using the current UTC date. Trust its
+result when determining whether the repository has recent
+activity.
+
+"Latest" and "recent" are NOT the same thing.
+
+If the user asks for "latest commits" or "last 5 commits",
+return the newest commits regardless of their age.
+
+If the user asks whether there are "recent commits",
+use get_recent_repository_commits.
+
+IMPORTANT RESPONSE STYLE:
+
+Do not expose raw tool output directly to the user.
+
+Use the information returned by repository tools to create
+a clear, natural, human-friendly answer.
+
+For commit-related questions:
+
+- Keep answers concise.
+- Do not show commit SHA values or GitHub URLs unless the
+  user asks for them.
+- Do not create large tables unless the user specifically
+  asks for detailed commit information.
+- For "are there recent commits?", clearly state whether
+  there are commits within the last {RECENT_COMMIT_DAYS} days.
+- If there are no recent commits, mention the date of the
+  latest available commit when useful.
+- Never describe an old commit as recent.
+
+For other repository questions, explain the result in simple
+language and mention relevant file paths when useful.
 
 Do not invent repository information.
 
-Mention relevant file paths when possible.
-
-Keep answers focused and concise.
-
 If the available repository information is insufficient,
 clearly say so.
+
+Keep answers focused and concise.
 """,
         )
 
@@ -523,11 +833,17 @@ clearly say so.
 
         if not is_repository_question:
 
-            async for chunk in self._stream_normal_response(
-                question
-            ):
+            async with AsyncSqliteSaver.from_conn_string(
+                "data/repolens.db"
+            ) as checkpointer:
 
-                yield chunk
+                async for chunk in self._stream_normal_response(
+                    question=question,
+                    thread_id=thread_id,
+                    checkpointer=checkpointer,
+                ):
+
+                    yield chunk
 
             return
 
