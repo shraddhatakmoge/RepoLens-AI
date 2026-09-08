@@ -1,7 +1,6 @@
-import time
-
 from google import genai
 from google.genai import types
+from google.genai.errors import ClientError
 
 from src.config.logging_config import get_logger
 from src.config.settings import settings
@@ -35,19 +34,41 @@ class GeminiEmbeddings:
         texts: list[str],
     ) -> list[list[float]]:
 
-        result = self.client.models.embed_content(
-            model=self.model,
-            contents=texts,
-            config=types.EmbedContentConfig(
-                output_dimensionality=self.output_dimensionality,
-                task_type="RETRIEVAL_DOCUMENT",
-            ),
-        )
+        try:
 
-        return [
-            embedding.values
-            for embedding in result.embeddings
-        ]
+            result = self.client.models.embed_content(
+                model=self.model,
+                contents=texts,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=self.output_dimensionality,
+                    task_type="RETRIEVAL_DOCUMENT",
+                ),
+            )
+
+            return [
+                embedding.values
+                for embedding in result.embeddings
+            ]
+
+        except ClientError as e:
+
+            if e.code == 429:
+
+                logger.warning(
+                    "Gemini embedding quota reached. Retry after approximately %s seconds",
+                    self.rate_limit_wait,
+                )
+
+                raise RuntimeError(
+                    "Embedding service is temporarily rate-limited. "
+                    f"Please try again in about {self.rate_limit_wait} seconds."
+                ) from e
+
+            logger.exception(
+                "Gemini embedding request failed"
+            )
+
+            raise
 
     def embed_documents(
         self,
@@ -66,14 +87,6 @@ class GeminiEmbeddings:
             len(texts),
             self.batch_size,
         ):
-
-            if start > 0:
-                logger.info(
-                    "Gemini embedding quota window reached. Waiting %s seconds before next batch",
-                    self.rate_limit_wait,
-                )
-
-                time.sleep(self.rate_limit_wait)
 
             batch = texts[
                 start:start + self.batch_size
@@ -111,16 +124,37 @@ class GeminiEmbeddings:
             len(text),
         )
 
-        result = self.client.models.embed_content(
-            model=self.model,
-            contents=text,
-            config=types.EmbedContentConfig(
-                output_dimensionality=self.output_dimensionality,
-                task_type="RETRIEVAL_QUERY",
-            ),
-        )
+        try:
 
-        return result.embeddings[0].values
+            result = self.client.models.embed_content(
+                model=self.model,
+                contents=text,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=self.output_dimensionality,
+                    task_type="RETRIEVAL_QUERY",
+                ),
+            )
+
+            return result.embeddings[0].values
+
+        except ClientError as e:
+
+            if e.code == 429:
+
+                logger.warning(
+                    "Gemini query embedding quota reached"
+                )
+
+                raise RuntimeError(
+                    "Embedding service is temporarily rate-limited. "
+                    f"Please try again in about {self.rate_limit_wait} seconds."
+                ) from e
+
+            logger.exception(
+                "Gemini query embedding failed"
+            )
+
+            raise
 
 
 embeddings = GeminiEmbeddings()
