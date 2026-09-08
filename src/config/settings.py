@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     gemini_api_key: str
     pinecone_api_key: str
     pinecone_index_name: str
+    database_url: str
     mcp_server_url: str = "http://127.0.0.1:8001/mcp"
 
     model_config = SettingsConfigDict(

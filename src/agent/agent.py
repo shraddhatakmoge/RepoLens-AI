@@ -9,7 +9,7 @@ from langchain.agents.middleware import (
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from src.config.logging_config import get_logger
 from src.config.settings import settings
@@ -809,6 +809,18 @@ Keep answers focused and concise.
 
         return agent, client
 
+    async def _get_checkpointer(self):
+
+        logger.info(
+            "Connecting to PostgreSQL checkpointer"
+        )
+
+        checkpointer = AsyncPostgresSaver.from_conn_string(
+            settings.database_url
+        )
+
+        return checkpointer
+
     async def stream(
         self,
         question: str,
@@ -831,11 +843,15 @@ Keep answers focused and concise.
             )
         )
 
-        if not is_repository_question:
+        checkpointer = AsyncPostgresSaver.from_conn_string(
+    settings.database_url
+)
 
-            async with AsyncSqliteSaver.from_conn_string(
-                "data/repolens.db"
-            ) as checkpointer:
+        async with checkpointer as checkpointer:
+
+            await checkpointer.setup()
+
+            if not is_repository_question:
 
                 async for chunk in self._stream_normal_response(
                     question=question,
@@ -845,11 +861,7 @@ Keep answers focused and concise.
 
                     yield chunk
 
-            return
-
-        async with AsyncSqliteSaver.from_conn_string(
-            "data/repolens.db"
-        ) as checkpointer:
+                return
 
             agent, client = await self._create_agent(
                 owner=owner,
@@ -972,9 +984,13 @@ Keep answers focused and concise.
             thread_id,
         )
 
-        async with AsyncSqliteSaver.from_conn_string(
-            "data/repolens.db"
-        ) as checkpointer:
+        checkpointer = AsyncPostgresSaver.from_conn_string(
+    settings.database_url
+)
+
+        async with checkpointer as checkpointer:
+
+            await checkpointer.setup()
 
             agent, client = await self._create_agent(
                 owner=owner,
@@ -1103,9 +1119,13 @@ Keep answers focused and concise.
             thread_id,
         )
 
-        async with AsyncSqliteSaver.from_conn_string(
-            "data/repolens.db"
-        ) as checkpointer:
+        checkpointer = AsyncPostgresSaver.from_conn_string(
+    settings.database_url
+)
+
+        async with checkpointer as checkpointer:
+
+            await checkpointer.setup()
 
             try:
 

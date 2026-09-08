@@ -1,5 +1,11 @@
 import uuid
+import asyncio
 
+asyncio.set_event_loop_policy(
+    asyncio.WindowsSelectorEventLoopPolicy()
+)
+
+from fastapi import FastAPI
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 

@@ -1,6 +1,8 @@
-import sqlite3
+import os
 from datetime import datetime, timezone
-from pathlib import Path
+
+import psycopg
+from psycopg.rows import dict_row
 
 from src.config.logging_config import get_logger
 
@@ -8,25 +10,28 @@ from src.config.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-DB_PATH = Path("data/repolens.db")
+import os
+from datetime import datetime, timezone
 
+from dotenv import load_dotenv
+
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 def get_connection():
 
-    DB_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL environment variable is not configured."
+        )
 
-    connection = sqlite3.connect(
-        DB_PATH
+    connection = psycopg.connect(
+        DATABASE_URL,
+        row_factory=dict_row,
     )
-
-    connection.row_factory = sqlite3.Row
 
     logger.debug(
-        "SQLite database connection opened: path=%s",
-        DB_PATH,
+        "PostgreSQL database connection opened"
     )
 
     return connection
@@ -41,6 +46,7 @@ def init_chat_sessions():
     connection = get_connection()
 
     try:
+
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -61,12 +67,17 @@ def init_chat_sessions():
         )
 
     except Exception:
+
+        connection.rollback()
+
         logger.exception(
             "Failed to initialize chat sessions table"
         )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -91,11 +102,12 @@ def create_chat_session(
     connection = get_connection()
 
     try:
+
         connection.execute(
             """
             INSERT INTO chat_sessions
             (thread_id, title, owner, repo, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
             (
                 thread_id,
@@ -115,13 +127,18 @@ def create_chat_session(
         )
 
     except Exception:
+
+        connection.rollback()
+
         logger.exception(
             "Failed to create chat session: thread_id=%s",
             thread_id,
         )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -134,6 +151,7 @@ def get_chat_sessions():
     connection = get_connection()
 
     try:
+
         rows = connection.execute(
             """
             SELECT *
@@ -142,10 +160,7 @@ def get_chat_sessions():
             """
         ).fetchall()
 
-        sessions = [
-            dict(row)
-            for row in rows
-        ]
+        sessions = list(rows)
 
         logger.info(
             "Chat sessions fetched: sessions=%s",
@@ -155,12 +170,15 @@ def get_chat_sessions():
         return sessions
 
     except Exception:
+
         logger.exception(
             "Failed to fetch chat sessions"
         )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -182,11 +200,12 @@ def update_chat_session(
     connection = get_connection()
 
     try:
+
         connection.execute(
             """
             UPDATE chat_sessions
-            SET title = ?, updated_at = ?
-            WHERE thread_id = ?
+            SET title = %s, updated_at = %s
+            WHERE thread_id = %s
             """,
             (
                 title,
@@ -203,13 +222,18 @@ def update_chat_session(
         )
 
     except Exception:
+
+        connection.rollback()
+
         logger.exception(
             "Failed to update chat session: thread_id=%s",
             thread_id,
         )
+
         raise
 
     finally:
+
         connection.close()
 
 
@@ -225,10 +249,11 @@ def delete_chat_session(
     connection = get_connection()
 
     try:
+
         connection.execute(
             """
             DELETE FROM chat_sessions
-            WHERE thread_id = ?
+            WHERE thread_id = %s
             """,
             (thread_id,),
         )
@@ -241,11 +266,16 @@ def delete_chat_session(
         )
 
     except Exception:
+
+        connection.rollback()
+
         logger.exception(
             "Failed to delete chat session: thread_id=%s",
             thread_id,
         )
+
         raise
 
     finally:
+
         connection.close()
