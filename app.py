@@ -43,6 +43,29 @@ st.markdown(
         display: none;
     }
 
+    div[class*="st-key-top_logout"] {
+        position: fixed;
+        top: 18px;
+        right: 28px;
+        z-index: 999999;
+    }
+
+    div[class*="st-key-top_logout"] button {
+        background-color: #dc2626 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 0.25rem 0.7rem !important;
+        min-height: 32px !important;
+        font-size: 0.8rem !important;
+        font-weight: 600 !important;
+    }
+
+    div[class*="st-key-top_logout"] button:hover {
+        background-color: #b91c1c !important;
+        color: white !important;
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -554,12 +577,19 @@ if not st.session_state.authenticated:
     )
 
     st.link_button(
-    "🐙 Continue with GitHub",
-    f"{API_URL}/auth/github/login",
-    use_container_width=True,
-)
+        "🐙 Continue with GitHub",
+        f"{API_URL}/auth/github/login",
+        use_container_width=True,
+    )
 
     st.stop()
+
+
+st.button(
+    "Logout",
+    key="top_logout",
+    on_click=logout,
+)
 
 
 with st.sidebar:
@@ -569,13 +599,6 @@ with st.sidebar:
     st.caption(
         f"GitHub: @{st.session_state.github_login}"
     )
-
-    if st.button(
-        "Logout",
-        use_container_width=True,
-    ):
-
-        logout()
 
     st.divider()
 
