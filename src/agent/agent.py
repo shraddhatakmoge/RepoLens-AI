@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 
 from fastmcp import Client
 from langchain.agents import create_agent
@@ -43,6 +44,79 @@ class RepoLensAgent:
         logger.info(
             "LLM initialized: model=openai/gpt-oss-120b"
         )
+
+    @staticmethod
+    def _extract_json(result):
+
+        if not result.content:
+            return None
+
+        for content in result.content:
+
+            text = getattr(
+                content,
+                "text",
+                None,
+            )
+
+            if not text:
+                continue
+
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                continue
+
+        return None
+
+    @staticmethod
+    def _extract_resource_text(result):
+
+        if not result.content:
+            return ""
+
+        for content in result.content:
+
+            resource = getattr(
+                content,
+                "resource",
+                None,
+            )
+
+            if resource is None:
+                continue
+
+            text = getattr(
+                resource,
+                "text",
+                None,
+            )
+
+            if text is not None:
+                return text
+
+        return ""
+
+    @staticmethod
+    def _extract_text(result):
+
+        if not result.content:
+            return ""
+
+        parts = []
+
+        for content in result.content:
+
+            text = getattr(
+                content,
+                "text",
+                None,
+            )
+
+            if text:
+                parts.append(text)
+
+        return "\n".join(parts)
 
     async def _is_repository_question(
         self,
@@ -265,7 +339,13 @@ unless the user explicitly asks about one.
         owner: str,
         repo: str,
         checkpointer,
+        github_token: str,
     ):
+
+        if not github_token:
+            raise ValueError(
+                "GitHub authentication token is required."
+            )
 
         namespace = f"{owner}-{repo}"
 
@@ -276,19 +356,25 @@ unless the user explicitly asks about one.
         )
 
         client = Client(
-            settings.mcp_server_url
+            "https://api.githubcopilot.com/mcp/",
+            auth=github_token,
         )
 
         await client.__aenter__()
 
         logger.info(
-            "Connected to MCP server: %s",
-            settings.mcp_server_url,
+            "Connected to GitHub official MCP server"
+        )
+
+        await client.list_tools()
+
+        logger.info(
+            "GitHub official MCP tools discovered successfully"
         )
 
         @tool
         async def list_repository_files() -> str:
-            """List the files in the repository."""
+            """List the files and folders in the repository."""
 
             logger.info(
                 "MCP tool called: list_repository_files | repository=%s/%s",
@@ -299,19 +385,49 @@ unless the user explicitly asks about one.
             try:
 
                 result = await client.call_tool(
-                    "list_files",
+                    "get_file_contents",
                     {
                         "owner": owner,
                         "repo": repo,
                     },
                 )
 
-                data = result.data
+                data = self._extract_json(result)
 
-                files = data.get(
-                    "files",
-                    [],
-                )
+                if data is None:
+
+                    logger.warning(
+                        "Could not parse repository listing: repository=%s/%s",
+                        owner,
+                        repo,
+                    )
+
+                    return (
+                        "Unable to retrieve the repository "
+                        "file structure."
+                    )
+
+                if isinstance(data, dict):
+                    data = [data]
+
+                files = []
+
+                for entry in data:
+
+                    if not isinstance(
+                        entry,
+                        dict,
+                    ):
+                        continue
+
+                    path = entry.get(
+                        "path"
+                    )
+
+                    if path:
+                        files.append(
+                            path
+                        )
 
                 logger.info(
                     "Repository files listed: repository=%s/%s | files=%s",
@@ -320,12 +436,7 @@ unless the user explicitly asks about one.
                     len(files),
                 )
 
-                paths = [
-                    file["path"]
-                    for file in files
-                ]
-
-                text = "\n".join(paths)
+                text = "\n".join(files)
 
                 if len(text) > MAX_FILE_LIST_CHARS:
 
@@ -336,7 +447,7 @@ unless the user explicitly asks about one.
 
                 return (
                     f"Repository: {owner}/{repo}\n"
-                    f"Total files: {len(files)}\n\n"
+                    f"Total entries: {len(files)}\n\n"
                     f"{text}"
                 )
 
@@ -366,7 +477,7 @@ unless the user explicitly asks about one.
             try:
 
                 result = await client.call_tool(
-                    "read_file",
+                    "get_file_contents",
                     {
                         "owner": owner,
                         "repo": repo,
@@ -374,12 +485,23 @@ unless the user explicitly asks about one.
                     },
                 )
 
-                data = result.data
-
-                content = data.get(
-                    "content",
-                    "",
+                content = self._extract_resource_text(
+                    result
                 )
+
+                if not content:
+
+                    logger.warning(
+                        "No file content returned: repository=%s/%s | path=%s",
+                        owner,
+                        repo,
+                        path,
+                    )
+
+                    return (
+                        f"No content was returned for "
+                        f"file: {path}"
+                    )
 
                 logger.info(
                     "Repository file read: repository=%s/%s | path=%s | chars=%s",
@@ -526,43 +648,155 @@ unless the user explicitly asks about one.
             try:
 
                 result = await client.call_tool(
-                    "get_commits",
+                    "list_commits",
                     {
                         "owner": owner,
                         "repo": repo,
-                        "limit": limit,
+                        "per_page": min(
+                            limit,
+                            100,
+                        ),
                     },
                 )
 
-                data = result.data
-
-                commits = data.get(
-                    "commits",
-                    [],
+                data = self._extract_json(
+                    result
                 )
+
+                if data is None:
+
+                    text = self._extract_text(
+                        result
+                    )
+
+                    if text:
+                        return text
+
+                    return "No commits were found."
+
+                if isinstance(
+                    data,
+                    dict,
+                ):
+
+                    commits = (
+                        data.get("commits")
+                        or data.get("items")
+                        or []
+                    )
+
+                elif isinstance(
+                    data,
+                    list,
+                ):
+
+                    commits = data
+
+                else:
+
+                    commits = []
+
+                if not commits:
+                    return "No commits were found."
+
+                lines = []
+
+                for commit in commits[:limit]:
+
+                    if not isinstance(
+                        commit,
+                        dict,
+                    ):
+                        continue
+
+                    commit_data = commit.get(
+                        "commit",
+                        {},
+                    )
+
+                    if not isinstance(
+                        commit_data,
+                        dict,
+                    ):
+                        commit_data = {}
+
+                    message = (
+                        commit.get("message")
+                        or commit_data.get(
+                            "message",
+                            "",
+                        )
+                    )
+
+                    author_data = commit_data.get(
+                        "author",
+                        {},
+                    )
+
+                    if not isinstance(
+                        author_data,
+                        dict,
+                    ):
+                        author_data = {}
+
+                    author = (
+                        commit.get("author")
+                        or author_data
+                    )
+
+                    if isinstance(
+                        author,
+                        dict,
+                    ):
+
+                        author_name = (
+                            author.get("name")
+                            or author.get("login")
+                            or ""
+                        )
+
+                        date = (
+                            author.get("date")
+                            or ""
+                        )
+
+                    else:
+
+                        author_name = str(
+                            author
+                        )
+
+                        date = ""
+
+                    sha = (
+                        commit.get("sha")
+                        or commit.get("oid")
+                        or ""
+                    )
+
+                    url = (
+                        commit.get("html_url")
+                        or commit.get("url")
+                        or ""
+                    )
+
+                    lines.append(
+                        f"Commit: {sha[:7]}\n"
+                        f"Author: {author_name}\n"
+                        f"Date: {date}\n"
+                        f"Message: {message}\n"
+                        f"URL: {url}"
+                    )
+
+                if not lines:
+                    return "No commits were found."
 
                 logger.info(
                     "Repository commits fetched: repository=%s/%s | commits=%s",
                     owner,
                     repo,
-                    len(commits),
+                    len(lines),
                 )
-
-                if not commits:
-
-                    return "No commits were found."
-
-                lines = []
-
-                for commit in commits:
-
-                    lines.append(
-                        f"Commit: {commit['sha'][:7]}\n"
-                        f"Author: {commit['author']}\n"
-                        f"Date: {commit['date']}\n"
-                        f"Message: {commit['message']}\n"
-                        f"URL: {commit['url']}"
-                    )
 
                 return "\n\n".join(lines)
 
@@ -590,20 +824,39 @@ unless the user explicitly asks about one.
             try:
 
                 result = await client.call_tool(
-                    "get_commits",
+                    "list_commits",
                     {
                         "owner": owner,
                         "repo": repo,
-                        "limit": 10,
+                        "per_page": 10,
                     },
                 )
 
-                data = result.data
-
-                commits = data.get(
-                    "commits",
-                    [],
+                data = self._extract_json(
+                    result
                 )
+
+                if isinstance(
+                    data,
+                    dict,
+                ):
+
+                    commits = (
+                        data.get("commits")
+                        or data.get("items")
+                        or []
+                    )
+
+                elif isinstance(
+                    data,
+                    list,
+                ):
+
+                    commits = data
+
+                else:
+
+                    commits = []
 
                 now = datetime.now(
                     timezone.utc
@@ -620,15 +873,62 @@ unless the user explicitly asks about one.
 
                 for commit in commits:
 
-                    commit_date = datetime.fromisoformat(
-                        commit["date"].replace(
-                            "Z",
-                            "+00:00",
-                        )
+                    if not isinstance(
+                        commit,
+                        dict,
+                    ):
+                        continue
+
+                    commit_data = commit.get(
+                        "commit",
+                        {},
                     )
 
-                    if commit_date >= cutoff:
+                    if not isinstance(
+                        commit_data,
+                        dict,
+                    ):
+                        commit_data = {}
 
+                    author_data = commit_data.get(
+                        "author",
+                        {},
+                    )
+
+                    if not isinstance(
+                        author_data,
+                        dict,
+                    ):
+                        author_data = {}
+
+                    commit_date = (
+                        commit.get("date")
+                        or author_data.get("date")
+                    )
+
+                    if not commit_date:
+                        continue
+
+                    try:
+
+                        parsed_date = datetime.fromisoformat(
+                            commit_date.replace(
+                                "Z",
+                                "+00:00",
+                            )
+                        )
+
+                        if parsed_date.tzinfo is None:
+
+                            parsed_date = parsed_date.replace(
+                                tzinfo=timezone.utc
+                            )
+
+                    except ValueError:
+
+                        continue
+
+                    if parsed_date >= cutoff:
                         recent_commits.append(
                             commit
                         )
@@ -647,10 +947,77 @@ unless the user explicitly asks about one.
 
                     for commit in recent_commits:
 
+                        commit_data = commit.get(
+                            "commit",
+                            {},
+                        )
+
+                        if not isinstance(
+                            commit_data,
+                            dict,
+                        ):
+                            commit_data = {}
+
+                        author_data = commit_data.get(
+                            "author",
+                            {},
+                        )
+
+                        if not isinstance(
+                            author_data,
+                            dict,
+                        ):
+                            author_data = {}
+
+                        message = (
+                            commit.get(
+                                "message"
+                            )
+                            or commit_data.get(
+                                "message",
+                                "",
+                            )
+                        )
+
+                        author = (
+                            commit.get(
+                                "author"
+                            )
+                            or author_data.get(
+                                "name",
+                                "",
+                            )
+                        )
+
+                        date = (
+                            commit.get(
+                                "date"
+                            )
+                            or author_data.get(
+                                "date",
+                                "",
+                            )
+                        )
+
+                        if isinstance(
+                            author,
+                            dict,
+                        ):
+
+                            author = (
+                                author.get(
+                                    "login"
+                                )
+                                or author.get(
+                                    "name"
+                                )
+                                or ""
+                            )
+
                         lines.append(
-                            f"Message: {commit['message']}\n"
-                            f"Author: {commit['author']}\n"
-                            f"Date: {commit['date']}"
+                            f"Message: {message}\n"
+                            f"Author: {author}\n"
+                            f"Date: {date}"
                         )
 
                     return (
@@ -664,13 +1031,55 @@ unless the user explicitly asks about one.
 
                     latest_commit = commits[0]
 
+                    commit_data = latest_commit.get(
+                        "commit",
+                        {},
+                    )
+
+                    if not isinstance(
+                        commit_data,
+                        dict,
+                    ):
+                        commit_data = {}
+
+                    author_data = commit_data.get(
+                        "author",
+                        {},
+                    )
+
+                    if not isinstance(
+                        author_data,
+                        dict,
+                    ):
+                        author_data = {}
+
+                    latest_date = (
+                        latest_commit.get(
+                            "date"
+                        )
+                        or author_data.get(
+                            "date",
+                            "unknown date",
+                        )
+                    )
+
+                    latest_message = (
+                        latest_commit.get(
+                            "message"
+                        )
+                        or commit_data.get(
+                            "message",
+                            "unknown message",
+                        )
+                    )
+
                     return (
                         f"No commits were found in the last "
                         f"{RECENT_COMMIT_DAYS} days.\n\n"
                         f"The latest available commit was "
-                        f"on {latest_commit['date']} "
+                        f"on {latest_date} "
                         f"with the message: "
-                        f"{latest_commit['message']}"
+                        f"{latest_message}"
                     )
 
                 return (
@@ -809,25 +1218,19 @@ Keep answers focused and concise.
 
         return agent, client
 
-    async def _get_checkpointer(self):
-
-        logger.info(
-            "Connecting to PostgreSQL checkpointer"
-        )
-
-        checkpointer = AsyncPostgresSaver.from_conn_string(
-            settings.database_url
-        )
-
-        return checkpointer
-
     async def stream(
         self,
         question: str,
         owner: str,
         repo: str,
         thread_id: str,
+        github_token: str,
     ):
+
+        if not github_token:
+            raise ValueError(
+                "GitHub authentication token is required."
+            )
 
         logger.info(
             "Agent stream started: repository=%s/%s | thread_id=%s | question_length=%s",
@@ -844,8 +1247,8 @@ Keep answers focused and concise.
         )
 
         checkpointer = AsyncPostgresSaver.from_conn_string(
-    settings.database_url
-)
+            settings.database_url
+        )
 
         async with checkpointer as checkpointer:
 
@@ -867,6 +1270,7 @@ Keep answers focused and concise.
                 owner=owner,
                 repo=repo,
                 checkpointer=checkpointer,
+                github_token=github_token,
             )
 
             config = {
@@ -975,7 +1379,13 @@ Keep answers focused and concise.
         owner: str,
         repo: str,
         thread_id: str,
+        github_token: str,
     ):
+
+        if not github_token:
+            raise ValueError(
+                "GitHub authentication token is required."
+            )
 
         logger.info(
             "Fetching conversation history: repository=%s/%s | thread_id=%s",
@@ -985,8 +1395,8 @@ Keep answers focused and concise.
         )
 
         checkpointer = AsyncPostgresSaver.from_conn_string(
-    settings.database_url
-)
+            settings.database_url
+        )
 
         async with checkpointer as checkpointer:
 
@@ -996,6 +1406,7 @@ Keep answers focused and concise.
                 owner=owner,
                 repo=repo,
                 checkpointer=checkpointer,
+                github_token=github_token,
             )
 
             config = {
@@ -1120,8 +1531,8 @@ Keep answers focused and concise.
         )
 
         checkpointer = AsyncPostgresSaver.from_conn_string(
-    settings.database_url
-)
+            settings.database_url
+        )
 
         async with checkpointer as checkpointer:
 
@@ -1153,7 +1564,13 @@ Keep answers focused and concise.
         owner: str,
         repo: str,
         thread_id: str,
+        github_token: str,
     ):
+
+        if not github_token:
+            raise ValueError(
+                "GitHub authentication token is required."
+            )
 
         logger.info(
             "Agent ask started: repository=%s/%s | thread_id=%s",
@@ -1171,11 +1588,16 @@ Keep answers focused and concise.
                 owner=owner,
                 repo=repo,
                 thread_id=thread_id,
+                github_token=github_token,
             ):
 
-                chunks.append(chunk)
+                chunks.append(
+                    chunk
+                )
 
-            answer = "".join(chunks)
+            answer = "".join(
+                chunks
+            )
 
             logger.info(
                 "Agent ask completed: repository=%s/%s | thread_id=%s | answer_chars=%s",

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "aiosqlite>=0.22.1",
+    "cryptography>=50.0.1",
     "fastapi>=0.141.1",
     "fastmcp>=4.0.3",
     "google-genai>=2.22.0",
@@ -19,6 +20,8 @@ dependencies = [
     "langchain-text-splitters>=1.1.2",
     "langgraph-checkpoint-postgres>=3.1.2",
     "langgraph-checkpoint-sqlite>=3.1.1",
+    "mcp>=2.2.0",
+    "mcp-types>=2.2.0",
     "pinecone>=7.3.0",
     "psycopg[binary]>=3.3.5",
     "pydantic>=2.13.5",
@@ -26,5 +29,6 @@ dependencies = [
     "python-dotenv>=1.2.3",
     "rank-bm25>=0.2.2",
     "streamlit>=1.63.0",
+    "streamlit-cookies-controller>=0.0.4",
     "uvicorn>=0.52.4",
 ]

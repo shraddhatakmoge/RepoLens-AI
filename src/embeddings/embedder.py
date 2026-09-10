@@ -1,82 +1,96 @@
-from google import genai
-from google.genai import types
-from google.genai.errors import ClientError
+import logging
 
-from src.config.logging_config import get_logger
+from langchain_core.embeddings import Embeddings
+from pinecone import Pinecone
+
 from src.config.settings import settings
 
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
-class GeminiEmbeddings:
+class PineconeEmbeddings(Embeddings):
 
-    def __init__(self):
+    model = "llama-text-embed-v2"
+    dimension = 384
+    batch_size = 96
 
-        self.client = genai.Client(
-            api_key=settings.gemini_api_key
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ):
+        self.client = Pinecone(
+            api_key=settings.pinecone_api_key
         )
-
-        self.model = "gemini-embedding-001"
-        self.output_dimensionality = 768
-        self.batch_size = 100
-        self.rate_limit_wait = 65
 
         logger.info(
-            "Gemini embeddings initialized: model=%s | dimension=%s | batch_size=%s",
+            "Pinecone embeddings initialized: model=%s | dimension=%s",
             self.model,
-            self.output_dimensionality,
-            self.batch_size,
+            self.dimension,
         )
+
+    def _extract_values(
+        self,
+        result,
+    ):
+        vectors = []
+
+        for item in result.data:
+
+            values = getattr(
+                item,
+                "values",
+                None,
+            )
+
+            if values is None and isinstance(
+                item,
+                dict,
+            ):
+                values = item.get("values")
+
+            if values is None:
+                raise ValueError(
+                    "Pinecone embedding response "
+                    "did not contain vector values."
+                )
+
+            vectors.append(list(values))
+
+        return vectors
 
     def _embed_batch(
         self,
         texts: list[str],
+        input_type: str,
     ) -> list[list[float]]:
 
-        try:
+        if not texts:
+            return []
 
-            result = self.client.models.embed_content(
-                model=self.model,
-                contents=texts,
-                config=types.EmbedContentConfig(
-                    output_dimensionality=self.output_dimensionality,
-                    task_type="RETRIEVAL_DOCUMENT",
-                ),
-            )
+        result = self.client.inference.embed(
+            model=self.model,
+            inputs=texts,
+            parameters={
+                "input_type": input_type,
+                "truncate": "END",
+                "dimension": self.dimension,
+            },
+        )
 
-            return [
-                embedding.values
-                for embedding in result.embeddings
-            ]
-
-        except ClientError as e:
-
-            if e.code == 429:
-
-                logger.warning(
-                    "Gemini embedding quota reached. Retry after approximately %s seconds",
-                    self.rate_limit_wait,
-                )
-
-                raise RuntimeError(
-                    "Embedding service is temporarily rate-limited. "
-                    f"Please try again in about {self.rate_limit_wait} seconds."
-                ) from e
-
-            logger.exception(
-                "Gemini embedding request failed"
-            )
-
-            raise
+        return self._extract_values(result)
 
     def embed_documents(
         self,
         texts: list[str],
     ) -> list[list[float]]:
 
+        if not texts:
+            return []
+
         logger.info(
-            "Embedding documents: texts=%s",
+            "Embedding documents with Pinecone: texts=%s",
             len(texts),
         )
 
@@ -93,22 +107,26 @@ class GeminiEmbeddings:
             ]
 
             logger.info(
-                "Embedding batch: start=%s | batch_size=%s",
+                "Pinecone embedding batch: start=%s | batch_size=%s",
                 start,
                 len(batch),
             )
 
             batch_embeddings = self._embed_batch(
-                batch
+                batch,
+                input_type="passage",
             )
 
-            embeddings.extend(
-                batch_embeddings
+            embeddings.extend(batch_embeddings)
+
+        if len(embeddings) != len(texts):
+            raise ValueError(
+                "Number of embeddings does not match "
+                "number of input texts."
             )
 
         logger.info(
-            "Document embeddings completed: texts=%s | embeddings=%s",
-            len(texts),
+            "Pinecone document embeddings completed: texts=%s",
             len(embeddings),
         )
 
@@ -119,42 +137,31 @@ class GeminiEmbeddings:
         text: str,
     ) -> list[float]:
 
+        if not text or not text.strip():
+            raise ValueError(
+                "Query text cannot be empty."
+            )
+
         logger.info(
-            "Embedding query: chars=%s",
+            "Embedding query with Pinecone: chars=%s",
             len(text),
         )
 
-        try:
+        embeddings = self._embed_batch(
+            [text],
+            input_type="query",
+        )
 
-            result = self.client.models.embed_content(
-                model=self.model,
-                contents=text,
-                config=types.EmbedContentConfig(
-                    output_dimensionality=self.output_dimensionality,
-                    task_type="RETRIEVAL_QUERY",
-                ),
+        if not embeddings:
+            raise ValueError(
+                "Pinecone returned no query embedding."
             )
 
-            return result.embeddings[0].values
-
-        except ClientError as e:
-
-            if e.code == 429:
-
-                logger.warning(
-                    "Gemini query embedding quota reached"
-                )
-
-                raise RuntimeError(
-                    "Embedding service is temporarily rate-limited. "
-                    f"Please try again in about {self.rate_limit_wait} seconds."
-                ) from e
-
-            logger.exception(
-                "Gemini query embedding failed"
-            )
-
-            raise
+        return embeddings[0]
 
 
-embeddings = GeminiEmbeddings()
+embeddings = PineconeEmbeddings()
+
+GeminiEmbeddings = PineconeEmbeddings
+CustomGeminiEmbeddings = PineconeEmbeddings
+GeminiEmbedding = PineconeEmbeddings
