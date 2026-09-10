@@ -553,28 +553,11 @@ if not st.session_state.authenticated:
         "and private repositories you have access to."
     )
 
-    st.html(
-        f"""
-        <a
-            href="{API_URL}/auth/github/login"
-            target="_self"
-            style="
-                display: block;
-                width: 100%;
-                padding: 0.75rem 1rem;
-                text-align: center;
-                border: 1px solid rgba(128, 128, 128, 0.5);
-                border-radius: 0.5rem;
-                text-decoration: none;
-                color: inherit;
-                font-weight: 600;
-                box-sizing: border-box;
-            "
-        >
-            🐙 Continue with GitHub
-        </a>
-        """
-    )
+    st.link_button(
+    "🐙 Continue with GitHub",
+    f"{API_URL}/auth/github/login",
+    use_container_width=True,
+)
 
     st.stop()
 
