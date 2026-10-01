@@ -18,8 +18,6 @@ https://repolens-ai.streamlit.app
 🔗 **Backend API:**  
 https://repolens-fastapi.onrender.com
 
-🔗 **MCP Server:**  
-https://repolens-mcp-16hr.onrender.com
 
 ---
 
